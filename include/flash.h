@@ -246,6 +246,7 @@ struct flashchip {
 		   to specify it for each and every chip in the database.*/
 		SPI25 = 0,
 		SPI_EDI = 1,
+		SPI_NAND = 2,
 	} spi_cmd_set;
 
 	int (*probe) (struct flashctx *flash);

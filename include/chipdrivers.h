@@ -107,6 +107,9 @@ int spi_prettyprint_status_register_sst25vf016(struct flashctx *flash);
 int spi_prettyprint_status_register_sst25vf040b(struct flashctx *flash);
 int spi_disable_blockprotect_sst26_global_unprotect(struct flashctx *flash);
 
+/* spi_nand.c */
+int probe_spi_nand(struct flashctx *flash);
+
 /* sfdp.c */
 int probe_spi_sfdp(struct flashctx *flash);
 
