@@ -20169,12 +20169,13 @@ const struct flashchip flashchips[] = {
 
 	{
 		.vendor		= "Generic",
-		.name		= "Generic NAND chip",
+		.name		= "Generic NAND chip 1.8v",
 		.bustype	= BUS_SPI,
 		.spi_cmd_set	= SPI_NAND,
 		.probe		= probe_spi_nand,
 		.write		= NULL,
 		.read		= NULL,
+		.voltage	= {1800}, /* 1.8V */
 	},
 
 	{0}

@@ -36,6 +36,9 @@
 #define CONFIG_REG_ADDR 0xb0    /* Some datasheets call this the OTP register */
 #define STATUS_REG_ADDR 0xc0
 
+/* Probe Signature */
+#define SIG_OFNI    0x49464e4f  /* "OFNI" */
+
 /* */
 #define SPINAND_ROW_ADDR_LEN 0x03
 #define SPINAND_READ_PAGE 0x13
@@ -102,10 +105,10 @@ static uint8_t spi_nand_get_feature(struct flashctx *flash, unsigned char addr)
 	unsigned char cmd_resp[1];
 
 	ret = spi_send_command(flash, sizeof(cmd), sizeof(cmd_resp), cmd, cmd_resp);
+	// TODO: better way?
+	errno = ret;
 	if (ret) {
 		msg_cerr("GET FEATURE failed!\n");
-		// TODO: why? Does it get clobbered by the error print?
-		errno = ret;
 		return 0;
 	}
 
@@ -219,7 +222,56 @@ static int spi_nand_read_page_offset(struct flashctx *flash, unsigned int row_ad
 	return 0;
 }
 
+/*
+If this doesn't work you might want to double check that your SPI isn't upside down haha
+static int spi_nand_read_id(struct flashctx *flash)
+{
+	// Warning: feature will be kept after soft reset!
+	const uint8_t cmd[] = { 0x9f, 0x00};
+    uint8_t outbuf[5];
+    int ret;
+
+	ret = spi_send_command(flash, sizeof(cmd), sizeof(outbuf), cmd, outbuf);
+	msg_cdbg("Read ID command returns: %d\n", ret);
+
+    // Expect to see 0xC8 0x11 0x7F 0x7F 0x7F
+	uint32_t i;
+	for (i = 0; i < sizeof(outbuf); i++)
+		msg_cdbg(" %02x", outbuf[i]);
+	msg_cdbg("\n");
+    return ret;
+}
+*/
+
+// TODO: stop calling it ofni bc its onfi
+
+// Appease the dediprog 16 byte readcnt limit
+// TODO: Make this fix as sane as possible
+// Search for and fix any place this is used
+#define DEDIPROG_SF600_HACK 256
+
+/*
+This reads fine if I force to 512 on dediprog.c
+-- seems like a new issue
+SF600 FW 7.2.34
+
+ESMT/datasheets/F50D1G41LB(2M).pdf
+- This PDF contains errata (they describe ONFI but do not actually conform)
+- Claims param page bytes 256+ are one thing
+  - Yes, there is redundancy
+  - No, there are not two sections of "Values of bytes 0-255"
+
+I'll take this as a sign to be content with 256 bytes of param page -- maybe even less
+
+SPI NAND probe returned 4f 4e 46 49 00 00 00 00 2c 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 50 4f 57 45 52 43 48 49 50 20 20 20 50 53 52 31 47 53 32 30 44 58 20 20 20 20 20 20 20 20 20 20 c8 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 08 00 00 40 00 00 00 00 00 00 00 40 00 00 00 00 04 00 00 01 00 01 14 00 01 05 01 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 08 00 00 00 00 84 03 10 27 64 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 4d 62 4f 4e 46 49 00 00 00 00 2c 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 50 4f 57 45 52 43 48 49 50 20 20 20 50 53 52 31 47 53 32 30 44 58 20 20 20 20 20 20 20 20 20 20 c8 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 08 00 00 40 00 00 00 00 00 00 00 40 00 00 00 00 04 00 00 01 00 01 14 00 01 05 01 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 08 00 00 00 00 84 03 10 27 64 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 4d 62
+*/
+
 static int probe_ofni(struct flashctx *flash) {
+
+    // TODO: remove sanity check deadcode
+    //spi_nand_read_id(flash);
+    //return 0;
+
 	// Read the Parameter Page
 	struct onfi_param_page parameters;
 	uint8_t cfg_feature;
@@ -246,8 +298,10 @@ static int probe_ofni(struct flashctx *flash) {
 	}
 
 	// Read the config page
+	//ret = spi_nand_read_page_offset(flash, CFG_PAGE_ROW, CFG_PAGE_COL,
+	//		(uint8_t*)&parameters, SPINAND_MAX_PARAMETER_PAGE_SIZE, 0);
 	ret = spi_nand_read_page_offset(flash, CFG_PAGE_ROW, CFG_PAGE_COL,
-			(uint8_t*)&parameters, SPINAND_MAX_PARAMETER_PAGE_SIZE, 0);
+			(uint8_t*)&parameters, DEDIPROG_SF600_HACK, 0);
 	if (ret) {
 		msg_cerr("OFNI probe: read parameter page failed\n");
 		return ret;
@@ -262,9 +316,25 @@ static int probe_ofni(struct flashctx *flash) {
 
 	msg_cdbg("SPI NAND probe returned");
 	uint32_t i;
-	for (i = 0; i < sizeof(parameters); i++)
+	//for (i = 0; i < sizeof(parameters); i++)
+	for (i = 0; i < DEDIPROG_SF600_HACK; i++)
 		msg_cdbg(" %02x", ((uint8_t*)(&parameters))[i]);
 	msg_cdbg("\n");
+
+    if (parameters.page_signature != SIG_OFNI) {
+	    msg_cdbg("Probed SPI NAND with param page signature: 0x%x\n", parameters.page_signature);
+        return -1;
+    }
+	msg_cdbg("Probed an OFNI SPI NAND!\n");
+
+    if (parameters.revision_number == 0x00) {
+	    msg_cerr("This chip is claiming to conform to ONFI V0\n");
+	    msg_cerr("This is not a real OFNI specification version and likely means that the chip does not completely comply with the specification\n");
+	    msg_cerr("Proceed at your own risk!\n");
+        // TODO: abort and require a "force" option
+    }
+
+    // TODO: check the CRC while we're here -- we can be reasonably confident we didn't read something else
 
 	return 0;
 }
